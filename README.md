@@ -131,6 +131,11 @@ make demo    # 运行接入示例
 make clean   # 清理产物
 ```
 
+## CI/CD
+
+- **push / PR**：自动跑全量测试（gofmt 检查 + go vet + 竞态检测单测 + 全工具编译）
+- **tag（v*）**：全量测试通过后构建发布产物（Windows/Linux/macOS × amd64/arm64 共 5 平台）
+  并自动发布到 GitHub Release，产物内含全部工具二进制 + 内置模板库 + 文档
 ## 许可
 
 MIT License，详见 LICENSE。
