@@ -1,10 +1,12 @@
 // Package captchasdk 纳智验证码破解SDK —— 一行接入，内置预训练库
-// 
+//
 // 用法：
+//
 //	solver := captchasdk.New()
 //	code := solver.Solve(imageBytes) // 内部自动获取SESSION并破解
-// 
+//
 // 或带已有SESSION：
+//
 //	code := solver.SolveWithSession(sid, imageBytes)
 package captchasdk
 
@@ -30,14 +32,22 @@ type Tmpl struct {
 	Count int
 }
 
-// IdxToCode 索引→4字符
-func IdxToCode(i int) string {
-	c1 := Pool[(i/(PoolLen*PoolLen*PoolLen))%PoolLen]
-	c2 := Pool[(i/(PoolLen*PoolLen))%PoolLen]
-	c3 := Pool[(i/PoolLen)%PoolLen]
-	c4 := Pool[i%PoolLen]
-	return string([]byte{c1, c2, c3, c4})
-}
+// codeTable 预计算全部组合（包初始化时1024次，运行时查表零分配）
+var codeTable = func() [Combos]string {
+	var t [Combos]string
+	for i := 0; i < Combos; i++ {
+		t[i] = string([]byte{
+			Pool[(i/(PoolLen*PoolLen*PoolLen))%PoolLen],
+			Pool[(i/(PoolLen*PoolLen))%PoolLen],
+			Pool[(i/PoolLen)%PoolLen],
+			Pool[i%PoolLen],
+		})
+	}
+	return t
+}()
+
+// IdxToCode 索引→4字符（查表，零分配）
+func IdxToCode(i int) string { return codeTable[i] }
 
 // ---- 二进制序列化格式（紧凑：40B/模板 vs JSON 124B）----
 // header: magic "NKPT" + version + slotCount(1B) + per-slot entryCount(2B×4)

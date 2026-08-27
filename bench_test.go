@@ -38,6 +38,43 @@ func BenchmarkSlotMatch(b *testing.B) {
 	}
 }
 
+// 基准：完整4槽match查表路径（v8代表模板缓存：每字符仅比较1个代表模板）
+func BenchmarkFullMatch(b *testing.B) {
+	t := newTable()
+	if slots := unmarshalTable(builtinTable); slots != nil {
+		t.slots = slots
+	}
+	t.rebuild()
+	var w [Slots][Words]uint64
+	for s := range w {
+		for i := 0; i < Words; i++ {
+			w[s][i] = 0xAAAAAAAAAAAAAAAA
+		}
+	}
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		t.match(&w)
+	}
+}
+
+// 基准：rank路径（top3候选计算）
+func BenchmarkRank(b *testing.B) {
+	t := newTable()
+	if slots := unmarshalTable(builtinTable); slots != nil {
+		t.slots = slots
+	}
+	var w [Slots][Words]uint64
+	for s := range w {
+		for i := 0; i < Words; i++ {
+			w[s][i] = 0xAAAAAAAAAAAAAAAA
+		}
+	}
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		t.rank(&w)
+	}
+}
+
 // 基准：imageWords（图像处理全链路）
 func BenchmarkImageWords(b *testing.B) {
 	sid, img, err := fetchForBench()

