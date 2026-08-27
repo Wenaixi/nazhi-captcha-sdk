@@ -20,26 +20,45 @@ type Solver struct {
 	tbl    *table
 	client *http.Client
 	base   string // 目标站点（默认DefaultBase，可SetBase覆盖）
-	// Learning 学习模式：破解成功后自动积累新模板（默认true）
-	Learning bool
 	// FastOnly 极速模式：查表命中直接返回不验证（省1次RTT，耗时25ms，可靠性-1%）
 	// false=默认：验证后再返回（多1次RTT，100%可靠）
 	FastOnly bool
+	// MaxConcurrent 并发闸门：同时进行Solve的最大goroutine数，0=不限
+	// 实测目标服务器对并发SESSION发放有节流（50并发墙钟3m，全成功但被串行化），
+	// 1000账号场景建议 10-30；超出者排队等待，代码侧零丢失
+	MaxConcurrent int
+	gate          chan struct{}
 }
 
 var (
-	reqBodies    [Combos][]byte
-	bodiesOnce   sync.Once
-	tblOnce      sync.Once
-	sharedTbl    *table
-	builtinCount int
+	reqBodies  [Combos][]byte
+	bodiesOnce sync.Once
+	tblOnce    sync.Once
+	sharedTbl  *table
 	// codeBySlot 槽位字符→组合索引步长（rankEnum免字符串拼接，v8新增）
 	slotStride = [Slots]int{PoolLen * PoolLen * PoolLen, PoolLen * PoolLen, PoolLen, 1}
 )
 
-// New 创建破解器（内置预训练库，无需训练）
-// learning=true 开启自学习（成功案例自动扩充本地模板）
-func New(learning bool) *Solver {
+var (
+	defaultOnce sync.Once
+	defaultSolv *Solver
+)
+
+// Default 返回进程级共享单例（推荐高并发场景使用：1000个goroutine共用1个实例，
+// 模板表/连接池/预热全部共享——内存1份、预热1次）
+// 出厂即满配：306条预训练库 + FastOnly极速模式默认开启，零配置零训练直接用
+// 用法：solver := captchasdk.Default()
+func Default() *Solver {
+	defaultOnce.Do(func() {
+		defaultSolv = New()
+		defaultSolv.FastOnly = true
+	})
+	return defaultSolv
+}
+
+// New 创建破解器（306条预训练库出厂内置，零训练零学习直接用）
+// 高并发（如批量登录）请改用 Default() 共享单例，避免每实例重复连接池与预热
+func New() *Solver {
 	bodiesOnce.Do(initBodies)
 	tblOnce.Do(func() {
 		sharedTbl = newTable()
@@ -58,10 +77,9 @@ func New(learning bool) *Solver {
 		ForceAttemptHTTP2:     false,
 	}
 	s := &Solver{
-		tbl:      sharedTbl,
-		client:   &http.Client{Transport: tr, Timeout: 20 * time.Second},
-		Learning: learning,
-		base:     DefaultBase,
+		tbl:    sharedTbl,
+		client: &http.Client{Transport: tr, Timeout: 20 * time.Second},
+		base:   DefaultBase,
 	}
 	// 连接预热（后台，不阻塞，数量按CPU核数自适应：低配设备预热更少）
 	cores := runtime.NumCPU()
@@ -78,6 +96,22 @@ func New(learning bool) *Solver {
 // SetBase 覆盖目标站点（用于测试/镜像环境）
 func (s *Solver) SetBase(url string) {
 	s.base = url
+}
+
+// gateEnter 并发闸门进入（MaxConcurrent>0时生效）
+func (s *Solver) gateEnter() {
+	if s.MaxConcurrent > 0 {
+		if s.gate == nil {
+			s.gate = make(chan struct{}, s.MaxConcurrent)
+		}
+		s.gate <- struct{}{}
+	}
+}
+
+func (s *Solver) gateLeave() {
+	if s.MaxConcurrent > 0 && s.gate != nil {
+		<-s.gate
+	}
 }
 
 func (s *Solver) warmup(n int) {
@@ -101,6 +135,29 @@ func initBodies() {
 // TotalTemplates 当前模板总数
 func (s *Solver) TotalTemplates() int { return s.tbl.total() }
 
+// AddTemplate 显式入库一个成功样本（仅供 cmd/train 离线训练工具调用；
+// SDK运行时零学习零训练，此方法不参与正常破解流程）
+func (s *Solver) AddTemplate(img []byte, code string) bool {
+	words, ok := imageWords(img)
+	if !ok {
+		return false
+	}
+	s.tbl.add(words, code)
+	return true
+}
+
+// TblPublic 导出内部表引用（仅供离线诊断工具）
+func (s *Solver) TblPublic() *table { return s.tbl }
+
+// ProbeSlotDists 导出诊断：每槽与全表最小距离
+func (s *Solver) ProbeSlotDists(img []byte) ([Slots]int, bool) {
+	words, ok := imageWords(img)
+	if !ok {
+		return [Slots]int{}, false
+	}
+	return s.tbl.probeSlotDists(&words), true
+}
+
 // FetchCaptcha 获取新SESSION+验证码图
 func (s *Solver) FetchCaptcha() (session string, img []byte, err error) {
 	req, _ := http.NewRequest("GET", s.base+"/kaptcha/kaptcha.jpg?t="+strconv.FormatInt(time.Now().UnixNano(), 10), nil)
@@ -110,7 +167,8 @@ func (s *Solver) FetchCaptcha() (session string, img []byte, err error) {
 		return "", nil, err
 	}
 	defer resp.Body.Close()
-	img, _ = io.ReadAll(resp.Body)
+	// LimitReader 64KB上限：验证码仅3-5KB，防异常大响应撑爆高并发内存
+	img, _ = io.ReadAll(io.LimitReader(resp.Body, 65536))
 	for _, c := range resp.Cookies() {
 		if c.Name == "SESSION" {
 			session = c.Value
@@ -149,34 +207,28 @@ func (s *Solver) Verify(session, endpoint, code string) (bool, error) {
 // SolveWithSession 对已有图片+SESSION破解（不自动提交验证）
 // 返回验证码字符串
 func (s *Solver) SolveWithSession(session string, img []byte) string {
-	// 级1 fast：查表
-	words, ok := imageWords(img)
-	if ok {
+	// 级1 fast：查表（306条预训练库，零训练直接用）
+	if words, ok := imageWords(img); ok {
 		if code, ok := s.tbl.match(&words); ok {
 			return code
 		}
 		// 级2 rank：top3^4=81组合
 		if ranked, ok := s.tbl.rank(&words); ok {
 			if code := s.rankEnum(session, ranked); code != "" {
-				if s.Learning {
-					s.tbl.add(words, code)
-				}
 				return code
 			}
 		}
 	}
-	// 级3 full：梯度全量
-	code := s.solveFull(session)
-	if code != "" && s.Learning && ok {
-		s.tbl.add(words, code)
-	}
-	return code
+	// 级3 full：梯度全量兜底
+	return s.solveFull(session)
 }
 
 // Solve 一站式：抓图→破解→提交验证→返回确认可用的验证码
 // endpoint 形如 /uiStudentLogin/validateCaptcha
 // 返回 (session, code)
 func (s *Solver) Solve(endpoint string) (string, string) {
+	s.gateEnter()
+	defer s.gateLeave()
 	sid, img, err := s.FetchCaptcha()
 	if err != nil {
 		return "", ""
@@ -185,10 +237,6 @@ func (s *Solver) Solve(endpoint string) (string, string) {
 	if s.FastOnly {
 		if words, ok := imageWords(img); ok {
 			if code, ok := s.tbl.match(&words); ok {
-				if s.Learning {
-					// fast结果也算一次成功样本（强化模板）
-					s.tbl.add(words, code)
-				}
 				return sid, code
 			}
 		}
@@ -205,11 +253,6 @@ func (s *Solver) Solve(endpoint string) (string, string) {
 		if code2 == "" {
 			return sid, ""
 		}
-		if s.Learning {
-			if words, wok := imageWords(img); wok {
-				s.tbl.add(words, code2)
-			}
-		}
 		s.Verify(sid, endpoint, code2)
 		return sid, code2
 	}
@@ -217,8 +260,10 @@ func (s *Solver) Solve(endpoint string) (string, string) {
 }
 
 // rankEnum 81组合竞速枚举（3^4个索引，字符按槽位步长合成，零拼接零分配）
-// v8新增：竞速击中即硬终止其他worker的HTTP请求（比较atomic.Value方案-15%时延）
+// 闸门在此生效：网络兜底路径限流（match主路径不受闸门影响，零等待）
 func (s *Solver) rankEnum(sid string, ranked [Slots][3]string) string {
+	s.gateEnter()
+	defer s.gateLeave()
 	var ids []int32
 	var gen func(pos int, cur int32)
 	gen = func(pos int, cur int32) {
@@ -279,6 +324,8 @@ func (s *Solver) rankEnum(sid string, ranked [Slots][3]string) string {
 
 // solveFull 梯度并发全量（16→128，限流安全）
 func (s *Solver) solveFull(sid string) string {
+	s.gateEnter()
+	defer s.gateLeave()
 	tiers := []int{16, 32, 64, 128}
 	offset := 0
 	for _, conc := range tiers {
@@ -352,20 +399,24 @@ func (s *Solver) postRawIdx(sid string, idx int32) (bool, error) {
 
 var hitPat = []byte("\"code\":1")
 
-// SaveTable 将当前（含自学习）模板表落盘
+// SaveTable 将当前模板表落盘（供离线固化为新内置库）
 // path 为空则使用默认 "captchasdk-learned.bin"
 func (s *Solver) SaveTable(path string) error {
 	if path == "" {
 		path = "captchasdk-learned.bin"
 	}
+	s.tbl.mu.RLock()
+	defer s.tbl.mu.RUnlock()
 	return os.WriteFile(path, marshalTable(s.tbl.slots), 0644)
 }
 
-// LoadTable 从磁盘加载自学习模板（与内置库合并，新增模板追加）
+// LoadTable 从磁盘加载外挂模板库（与内置库合并，新增模板追加；用于库升级而无需重发版）
 func (s *Solver) LoadTable(path string) error {
 	if path == "" {
 		path = "captchasdk-learned.bin"
 	}
+	s.tbl.mu.Lock()
+	defer s.tbl.mu.Unlock()
 	b, err := os.ReadFile(path)
 	if err != nil {
 		return err
@@ -393,10 +444,4 @@ func (s *Solver) LoadTable(path string) error {
 	}
 	s.tbl.rebuild()
 	return nil
-}
-
-// LearnedCount 当前自学习新增的模板数（相对内置库）
-func (s *Solver) LearnedCount() int {
-	// 简化：返回总数 - 内置数
-	return s.tbl.total() - builtinCount
 }

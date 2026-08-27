@@ -48,6 +48,22 @@ func loadGray(data []byte) (*gray, error) {
 			row[x] = byte(0.299*float64(r>>8) + 0.587*float64(gg>>8) + 0.114*float64(bl>>8))
 		}
 	}
+	// 孤立点去噪：暗像素且8邻域全亮 → 噪声点清除（kaptcha干扰线交叉残留）
+	// O(w*h)单遍扫描，热路径纳秒级；保护细笔画：只清完全孤立的单像素
+	for y := 1; y < h-1; y++ {
+		row := g.pix[y]
+		for x := 1; x < w-1; x++ {
+			if row[x] >= DarkThreshold {
+				continue
+			}
+			if g.pix[y-1][x-1] >= DarkThreshold && g.pix[y-1][x] >= DarkThreshold &&
+				g.pix[y-1][x+1] >= DarkThreshold && g.pix[y][x-1] >= DarkThreshold &&
+				g.pix[y][x+1] >= DarkThreshold && g.pix[y+1][x-1] >= DarkThreshold &&
+				g.pix[y+1][x] >= DarkThreshold && g.pix[y+1][x+1] >= DarkThreshold {
+				row[x] = 255 // 清除孤立噪声点
+			}
+		}
+	}
 	return g, nil
 }
 

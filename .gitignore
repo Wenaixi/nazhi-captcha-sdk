@@ -1,5 +1,1 @@
-*.exe
-data/table.json
-cracker.log
-*.log
-captchasdk-learned.bin
+*.exe 

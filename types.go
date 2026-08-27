@@ -91,6 +91,15 @@ func marshalTable(slots []map[string][]*Tmpl) []byte {
 	return buf
 }
 
+// UnmarshalTablePublic 导出解析接口（供离线工具合并/校验模板库）
+func UnmarshalTablePublic(data []byte) []map[string][]*Tmpl { return unmarshalTable(data) }
+
+// MarshalTablePublic 导出序列化接口（供离线工具固化模板库）
+func MarshalTablePublic(slots []map[string][]*Tmpl) []byte { return marshalTable(slots) }
+
+// ImageWordsPublic 导出图像→位图（供离线诊断工具）
+func ImageWordsPublic(img []byte) ([Slots][Words]uint64, bool) { return imageWords(img) }
+
 // unmarshalTable 二进制→模板表
 func unmarshalTable(data []byte) []map[string][]*Tmpl {
 	if len(data) < 5 || data[0] != magic[0] || data[1] != magic[1] || data[2] != magic[2] || data[3] != magic[3] {

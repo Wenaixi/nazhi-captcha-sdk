@@ -1,4 +1,4 @@
-// demo：SDK接入示例（含三种模式实测）
+// demo：SDK接入示例（零训练零配置直接用）
 package main
 
 import (
@@ -9,35 +9,31 @@ import (
 )
 
 func main() {
-	// 模式1：标准模式（验证后返回，100%可靠）
-	solver := captchasdk.New(true)
-	fmt.Printf("内置模板: %d 条\n", solver.TotalTemplates())
+	// 推荐用法：Default单例（306条预训练库+FastOnly极速模式出厂默认开启）
+	solver := captchasdk.Default()
+	fmt.Printf("内置模板: %d 条  FastOnly: %v\n", solver.TotalTemplates(), solver.FastOnly)
 
 	endpoint := "/uiStudentLogin/validateCaptcha"
 
+	// 极速模式：查表命中直返（省1次验证RTT）
 	t0 := time.Now()
 	sid, code := solver.Solve(endpoint)
 	el := time.Since(t0)
 	if code != "" {
-		fmt.Printf("[标准] code=%s session=%s... 耗时=%v\n", code, sid[:8], el.Round(time.Millisecond))
+		fmt.Printf("[极速] code=%s session=%s... 耗时=%v\n", code, sid[:8], el.Round(time.Millisecond))
 	} else {
-		fmt.Println("[标准] 破解失败")
+		fmt.Println("[极速] 查表未命中（自动回退rank/full兜底）")
 	}
 
-	// 模式2：FastOnly（查表直返，25ms，省1次RTT）
-	fast := captchasdk.New(true)
-	fast.FastOnly = true
+	// 标准模式（验证后返回，100%可靠）
+	plain := captchasdk.New()
+	plain.FastOnly = false
 	t1 := time.Now()
-	sid2, code2 := fast.Solve(endpoint)
+	sid2, code2 := plain.Solve(endpoint)
 	el2 := time.Since(t1)
 	if code2 != "" {
-		fmt.Printf("[FastOnly] code=%s session=%s... 耗时=%v\n", code2, sid2[:8], el2.Round(time.Millisecond))
+		fmt.Printf("[标准] code=%s session=%s... 耗时=%v\n", code2, sid2[:8], el2.Round(time.Millisecond))
 	} else {
-		fmt.Println("[FastOnly] 查表未命中(回退标准模式内部处理)")
-	}
-
-	// 自学习持久化
-	if err := solver.SaveTable(""); err == nil {
-		fmt.Printf("[自学习] 已落盘 captchasdk-learned.bin 新增=%d 条\n", solver.LearnedCount())
+		fmt.Println("[标准] 破解失败")
 	}
 }
