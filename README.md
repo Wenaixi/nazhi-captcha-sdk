@@ -1,4 +1,4 @@
-# 纳智验证码破解 SDK（captcha-sdk）
+# 纳智验证码破解 SDK（nazhi-captcha-sdk）
 
 Go SDK 一行接入，**出厂预训练、零学习零训练零配置、O(1)级破解**，开箱即用。
 内置模板库为离线批量训练产物，覆盖目标站点全量字形空间，运行时不做任何学习。
@@ -16,7 +16,7 @@ Go SDK 一行接入，**出厂预训练、零学习零训练零配置、O(1)级�
 ## 接入方式
 
 ```go
-import captchasdk "captcha-sdk"
+import captchasdk "nazhi-captcha-sdk"
 
 // 推荐：进程级共享单例（预训练库 + FastOnly 极速模式出厂默认开启）
 solver := captchasdk.Default()

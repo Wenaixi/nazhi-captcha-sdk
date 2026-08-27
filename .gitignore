@@ -1,6 +1,25 @@
-﻿*.exe
+# 编译产物
+*.exe
+*.out
+bin/
+
+# 训练/模板库产物（内置库除外）
 *.bin
 !data/builtin.bin
 round*.bin
 learned*.bin
 captchasdk-learned.bin
+
+# 测试与基准临时文件
+*.test
+*.prof
+
+# IDE/系统
+.idea/
+.vscode/
+*.iml
+Thumbs.db
+.DS_Store
+
+# 日志
+*.log
