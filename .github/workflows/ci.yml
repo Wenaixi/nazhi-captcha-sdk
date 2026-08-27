@@ -3,6 +3,8 @@ name: ci
 on:
   push:
     branches: [master]
+    tags:
+      - "v*"
 
 jobs:
   test:
@@ -31,3 +33,13 @@ jobs:
         with:
           name: artifact-linux-amd64
           path: nazhi-captcha-sdk-linux-amd64.tar.gz
+
+  publish:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: artifact-*
+          path: dist
+          merge-multiple: true
