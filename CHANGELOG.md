@@ -5,9 +5,29 @@
 
 ## [未发布]
 
+## [0.2.1] - 2026-08-28
+
+发布链接：[v0.2.1](https://github.com/Wenaixi/nazhi-captcha-sdk/releases/tag/v0.2.1)
+
+### 修复
+
+- README 接入示例的 import 路径同步为 `github.com/Wenaixi/nazhi-captcha-sdk`（v0.2.0 模块改名时遗漏，旧路径无法编译）
+
+### 变更
+
+- CI gofmt 检查改为失败式断言（此前仅列文件不拦截）；发布产物补充 CHANGELOG.md；移除零依赖项目无意义的 Go 模块缓存配置
+
+## [0.2.0] - 2026-08-27
+
+发布链接：[v0.2.0](https://github.com/Wenaixi/nazhi-captcha-sdk/releases/tag/v0.2.0)
+
 ### 新增
 
 - `MatchImage` 包级纯本地查表识别 API（零网络/零连接池/零预热），供 nazhi-cli 内置验证码识别器接入
+
+### 变更
+
+- 模块名改为 `github.com/Wenaixi/nazhi-captcha-sdk`：满足 Go 模块规范（带点域名前缀），支持 nazhi-cli/nazhi-auto CI 远程拉取，import 路径同步更新
 
 ## [0.1.0] - 2026-08-27
 

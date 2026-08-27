@@ -16,7 +16,7 @@ Go SDK 一行接入，**出厂预训练、零学习零训练零配置、O(1)级�
 ## 接入方式
 
 ```go
-import captchasdk "nazhi-captcha-sdk"
+import captchasdk "github.com/Wenaixi/nazhi-captcha-sdk"
 
 // 推荐：进程级共享单例（预训练库 + FastOnly 极速模式出厂默认开启）
 solver := captchasdk.Default()

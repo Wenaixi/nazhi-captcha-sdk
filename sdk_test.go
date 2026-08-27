@@ -69,6 +69,7 @@ func TestIdxToCode(t *testing.T) {
 		t.Fatalf("IdxToCode(max) = %s", IdxToCode(Combos-1))
 	}
 }
+
 func TestMatchImage_Boundaries(t *testing.T) {
 	// 空输入：返回 (空串, false)
 	if code, ok := MatchImage(nil); ok || code != "" {
@@ -90,4 +91,3 @@ func TestMatchImage_SharedTableWithSolver(t *testing.T) {
 		t.Fatal("Solver 与 MatchImage 应共享同一模板表")
 	}
 }
-
