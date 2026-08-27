@@ -1,1 +1,6 @@
-*.exe 
+﻿*.exe
+*.bin
+!data/builtin.bin
+round*.bin
+learned*.bin
+captchasdk-learned.bin
