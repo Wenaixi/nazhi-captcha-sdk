@@ -131,6 +131,10 @@ make demo    # 运行接入示例
 make clean   # 清理产物
 ```
 
+## 更新记录
+
+变更历史见 [CHANGELOG.md](CHANGELOG.md)。
+
 ## CI/CD
 
 - **push / PR**：自动跑全量测试（gofmt 检查 + go vet + 竞态检测单测 + 全工具编译）
