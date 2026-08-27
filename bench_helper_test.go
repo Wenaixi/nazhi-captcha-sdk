@@ -3,7 +3,7 @@ package captchasdk
 import "net/http"
 
 func fetchForBench() (string, []byte, error) {
-	resp, err := http.Get(Base + "/kaptcha/kaptcha.jpg")
+	resp, err := http.Get(DefaultBase + "/kaptcha/kaptcha.jpg")
 	if err != nil {
 		return "", nil, err
 	}
