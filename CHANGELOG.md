@@ -5,6 +5,8 @@
 
 ## [0.1.0] - 2026-08-27
 
+发布链接：[v0.1.0](https://github.com/Wenaixi/nazhi-captcha-sdk/releases/tag/v0.1.0)
+
 ### 新增
 
 - 初始化项目：Go SDK 一行接入验证码破解，内置预训练模板库，零训练零配置
