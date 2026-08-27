@@ -30,15 +30,6 @@ jobs:
     if: startsWith(github.ref, "refs/tags/v")
     needs: test
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        include:
-          - os: windows
-            arch: amd64
-            ext: .exe
-          - os: linux
-            arch: amd64
-            ext: ""
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -46,19 +37,19 @@ jobs:
           go-version: "stable"
       - name: 构建
         env:
-          GOOS: ${{ matrix.os }}
-          GOARCH: ${{ matrix.arch }}
+          GOOS: linux
+          GOARCH: amd64
           CGO_ENABLED: "0"
         run: |
           mkdir -p dist/tools
-          go build -ldflags="-s -w" -o dist/tools/demo${{ matrix.ext }} ./cmd/demo
+          go build -ldflags="-s -w" -o dist/tools/demo ./cmd/demo
           cp data/builtin.bin dist/
           cp README.md LICENSE dist/
       - name: 打包
         run: |
           cd dist
-          tar -czf ../nazhi-captcha-sdk-${{ matrix.os }}-${{ matrix.arch }}.tar.gz *
+          tar -czf ../nazhi-captcha-sdk-linux-amd64.tar.gz *
       - uses: actions/upload-artifact@v4
         with:
-          name: artifact-${{ matrix.os }}-${{ matrix.arch }}
-          path: nazhi-captcha-sdk-${{ matrix.os }}-${{ matrix.arch }}.tar.gz
+          name: artifact-linux-amd64
+          path: nazhi-captcha-sdk-linux-amd64.tar.gz
