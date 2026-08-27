@@ -51,6 +51,7 @@ s := captchasdk.New()
 | `SaveTable(path)` | 落盘当前模板表（供离线固化为新内置库） |
 | `TotalTemplates() int` | 当前模板总数 |
 | `AddTemplate(img, code) bool` | 显式入库样本（仅离线训练工具使用） |
+| `MatchImage(img) (code, ok)` | 纯本地查表识别（零网络），未命中返回 (空串, false) 供调用方换图重试 |
 
 ### Solver 字段
 

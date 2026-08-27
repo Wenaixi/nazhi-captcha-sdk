@@ -3,6 +3,12 @@
 本项目更新记录遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 格式，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [未发布]
+
+### 新增
+
+- `MatchImage` 包级纯本地查表识别 API（零网络/零连接池/零预热），供 nazhi-cli 内置验证码识别器接入
+
 ## [0.1.0] - 2026-08-27
 
 发布链接：[v0.1.0](https://github.com/Wenaixi/nazhi-captcha-sdk/releases/tag/v0.1.0)
