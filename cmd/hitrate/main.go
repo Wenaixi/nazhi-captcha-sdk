@@ -7,7 +7,7 @@ import (
 	"sync"
 	"sync/atomic"
 
-	captchasdk "nazhi-captcha-sdk"
+	captchasdk "github.com/Wenaixi/nazhi-captcha-sdk"
 )
 
 func main() {

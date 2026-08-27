@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	captchasdk "nazhi-captcha-sdk"
+	captchasdk "github.com/Wenaixi/nazhi-captcha-sdk"
 )
 
 func main() {
