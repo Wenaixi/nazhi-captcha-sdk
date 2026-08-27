@@ -1,25 +1,29 @@
-# 编译产物
+# Build artifacts
 *.exe
 *.out
 bin/
 
-# 训练/模板库产物（内置库除外）
+# Training/template artifacts (keep builtin)
 *.bin
 !data/builtin.bin
 round*.bin
 learned*.bin
 captchasdk-learned.bin
 
-# 测试与基准临时文件
+# Test & benchmark temp files
 *.test
 *.prof
 
-# IDE/系统
+# IDE/OS
 .idea/
 .vscode/
 *.iml
 Thumbs.db
 .DS_Store
 
-# 日志
+# Logs
 *.log
+
+# Local AI agent memory (not for distribution)
+CLAUDE.md
+.agents/
