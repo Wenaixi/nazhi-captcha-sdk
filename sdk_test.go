@@ -69,3 +69,25 @@ func TestIdxToCode(t *testing.T) {
 		t.Fatalf("IdxToCode(max) = %s", IdxToCode(Combos-1))
 	}
 }
+func TestMatchImage_Boundaries(t *testing.T) {
+	// 空输入：返回 (空串, false)
+	if code, ok := MatchImage(nil); ok || code != "" {
+		t.Fatalf("空输入应返回空串+false，实际 code=%q ok=%v", code, ok)
+	}
+	// 非法字节（非图片）：返回 (空串, false)，不 panic
+	if code, ok := MatchImage([]byte("not-an-image")); ok || code != "" {
+		t.Fatalf("非法输入应返回空串+false，实际 code=%q ok=%v", code, ok)
+	}
+	// 极短 JPEG 字节：不 panic（分割必然失败返回 false）
+	jpeg := []byte{0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10, 0x4A, 0x46, 0x49, 0x46, 0x00, 0x01}
+	MatchImage(jpeg) // 不 panic 即可
+}
+
+func TestMatchImage_SharedTableWithSolver(t *testing.T) {
+	// MatchImage 与 Solver.New() 必须共享同一模板表单例（内存 1 份）
+	s := New()
+	if s.tbl != sharedTbl {
+		t.Fatal("Solver 与 MatchImage 应共享同一模板表")
+	}
+}
+

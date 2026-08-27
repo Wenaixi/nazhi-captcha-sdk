@@ -60,13 +60,7 @@ func Default() *Solver {
 // 高并发（如批量登录）请改用 Default() 共享单例，避免每实例重复连接池与预热
 func New() *Solver {
 	bodiesOnce.Do(initBodies)
-	tblOnce.Do(func() {
-		sharedTbl = newTable()
-		if slots := unmarshalTable(builtinTable); slots != nil {
-			sharedTbl.slots = slots
-		}
-		sharedTbl.rebuild()
-	})
+	tblOnce.Do(initSharedTbl)
 	tr := &http.Transport{
 		MaxIdleConns:          2048,
 		MaxIdleConnsPerHost:   2048,
@@ -125,11 +119,32 @@ func (s *Solver) warmup(n int) {
 	}
 }
 
+// initSharedTbl 初始化进程级共享模板表（内置预训练库），供 New() 与 MatchImage 共用。
+func initSharedTbl() {
+	sharedTbl = newTable()
+	if slots := unmarshalTable(builtinTable); slots != nil {
+		sharedTbl.slots = slots
+	}
+	sharedTbl.rebuild()
+}
+
 func initBodies() {
 	for i := 0; i < Combos; i++ {
 		code := IdxToCode(i)
 		reqBodies[i] = []byte("{\"captcha\":\"" + code + "\"}")
 	}
+}
+
+// MatchImage 纯本地查表识别验证码（零网络、零连接池、零预热）。
+// 命中返回验证码（4 字符）；未命中返回 (空串, false)，调用方应换图重试。
+// 与 Solver.New()/Default() 共享同一内置模板表单例。
+func MatchImage(img []byte) (string, bool) {
+	words, ok := imageWords(img)
+	if !ok {
+		return "", false
+	}
+	tblOnce.Do(initSharedTbl)
+	return sharedTbl.match(&words)
 }
 
 // TotalTemplates 当前模板总数
